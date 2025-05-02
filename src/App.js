@@ -13,6 +13,7 @@ import { EditControl } from "react-leaflet-draw";
 import ReactGA from "react-ga4";
 import { transformInput, ValueError, getBbox, layerGroupToWkt } from "./wkt";
 import toast, { Toaster } from "react-hot-toast";
+import wellknown from "wellknown";
 
 const DEFAULT_EPSG = "4326";
 
@@ -31,8 +32,8 @@ function createCircleMarker(feature, latlng) {
   return L.circleMarker(latlng, options);
 }
 
+// 在文件开头的 state 声明部分添加
 function App() {
-
   const [map, setMap] = useState(null);
   const [error, setError] = useState(null);
   const [epsg, setEpsg] = useState("");
@@ -40,11 +41,12 @@ function App() {
   const [wkb, setWkb] = useState("");
   const [ewkb, setEwkb] = useState("");
   const [json, setJson] = useState("");
+  const [bbox, setBbox] = useState("");  // 添加 bbox state
   const [exampleIndex, setExampleIndex] = useState(0);
 
   const groupRef = useRef();
 
-  const ensureResize = function(mapRef) {
+  const ensureResize = function (mapRef) {
     const resizeObserver = new ResizeObserver(() => {
       mapRef.invalidateSize();
     });
@@ -63,7 +65,7 @@ function App() {
         zoom={1}
         scrollWheelZoom={true}
         ref={setMap}
-        >
+      >
         <LayersControl>
           <LayersControl.BaseLayer checked name="OpenStreetMap">
             <TileLayer
@@ -95,42 +97,42 @@ function App() {
           <EditControl
             position="topright"
             onDrawStop={handleDrawStop}
-            edit={{edit: false, remove: false}}
+            edit={{ edit: false, remove: false }}
             draw={{
               rectangle: {
                 shapeOptions: {
-                    opacity: 1,
-                    fillOpacity: 0.2,
-                    weight: 3,
-                    color: "#3388ff",
-                    fill: "#3388ff"
+                  opacity: 1,
+                  fillOpacity: 0.2,
+                  weight: 3,
+                  color: "#3388ff",
+                  fill: "#3388ff"
                 }
               },
               marker: false,
               circle: false,
               polygon: {
                 shapeOptions: {
-                    opacity: 1,
-                    fillOpacity: 0.2,
-                    weight: 3,
-                    color: "#3388ff",
-                    fill: "#3388ff"
-                }
-              },
-              circlemarker: {
                   opacity: 1,
                   fillOpacity: 0.2,
                   weight: 3,
-                  radius: 4,
                   color: "#3388ff",
                   fill: "#3388ff"
+                }
+              },
+              circlemarker: {
+                opacity: 1,
+                fillOpacity: 0.2,
+                weight: 3,
+                radius: 4,
+                color: "#3388ff",
+                fill: "#3388ff"
               },
               polyline: {
                 shapeOptions: {
-                    opacity: 1,
-                    weight: 3,
-                    color: "#3388ff",
-                    fill: false
+                  opacity: 1,
+                  weight: 3,
+                  color: "#3388ff",
+                  fill: false
                 }
               }
             }}
@@ -164,7 +166,7 @@ function App() {
       fetchWkt(hash);
     }
   }, [map]); // eslint-disable-line react-hooks/exhaustive-deps
-  
+
   function handleDrawStop() {
     const wktDraw = layerGroupToWkt(groupRef.current);
     setEpsg(4326);
@@ -242,7 +244,7 @@ function App() {
       headers: {
         "Content-Type": "application/json"
       }
-    }).catch(error => console.error(error)); 
+    }).catch(error => console.error(error));
     window.history.replaceState(null, null, "?" + hash);
     navigator.clipboard.writeText(window.location.href);
     toast("Generated URL for sharing and copied to clipboard")
@@ -266,10 +268,14 @@ function App() {
     setExampleIndex(newIndex);
   }
 
+  // 修改 processInput 函数，添加 bbox 的更新
   async function processInput(input, doVisualize = true) {
     setError(null);
     try {
       input = await transformInput(input);
+      if (input.wkt) {
+        setBbox(getBbox(input.wkt));  // 更新 bbox
+      }
     } catch (error) {
       if (error instanceof ValueError) {
         setError(error.message);
@@ -279,7 +285,8 @@ function App() {
     setEpsg(input.epsg);
     setWkb(input.wkb);
     setEwkb(input.ewkb);
-    setJson(input.json ? JSON.stringify(input.json, null, 2) : null);
+    // setJson(input.json ? JSON.stringify(input.json, null, 2) : null);
+    setJson(input.json ? JSON.stringify(input.json, null, 2) : "");  // 确保永远不会设置为 null
     if (doVisualize) {
       visualize(input);
     }
@@ -302,6 +309,50 @@ function App() {
     }
   }
 
+  function handleGeoJsonChange(e) {
+    clearHash();
+    try {
+      const geoJsonInput = JSON.parse(e.target.value);
+      setJson(JSON.stringify(geoJsonInput, null, 2));
+      debugger
+      // 提取 EPSG 代码
+      let tempepsg = epsg;
+      if (geoJsonInput.crs && geoJsonInput.crs.type === "name") {
+        const name = geoJsonInput.crs.properties.name;
+        const match = name.match(/EPSG::(\d+)/);
+        if (match) {
+          tempepsg = match[1]; // 提取数字部分，例如 "4326"
+        }
+      }
+      // 生成 WKT
+      const geometry = getGeometry(geoJsonInput);
+      let tempwkt = "";
+      if (geometry) {
+        tempwkt = wellknown.stringify(geometry); // 将几何对象转换为 WKT
+      }
+      // 更新 WKT 和其他格式
+      processInput({
+        json: geoJsonInput,
+        epsg: tempepsg,
+        wkt: tempwkt,
+        wkb: wkb,
+        ewkb: ewkb
+      });  // 移除 .then() 链，直接使用 processInput
+    } catch (e) {
+      setError("Invalid GeoJSON format");
+    }
+  }
+  // 辅助函数：从 GeoJSON 中提取几何对象
+  function getGeometry(geoJson) {
+    if (geoJson.type === "FeatureCollection" && geoJson.features.length > 0) {
+      return geoJson.features[0].geometry;
+    } else if (geoJson.type === "Feature") {
+      return geoJson.geometry;
+    } else if (["Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon", "GeometryCollection"].includes(geoJson.type)) {
+      return geoJson;
+    }
+    return null;
+  }
   return (
     <div id="app">
 
@@ -315,7 +366,7 @@ function App() {
         </Container>
       </Navbar>
 
-      { displayMap }
+      {displayMap}
 
       <Container className="mt-3 mb-3">
 
@@ -340,6 +391,27 @@ function App() {
             </div>
           </Col>
           <Col lg={true} className="mb-3">
+            <Form.Group className="mb-3" controlId="geojson">
+              <Form.Label>GeoJSON</Form.Label>
+              <Form.Control
+                className="font-monospace"
+                as="textarea"
+                rows={8}
+                value={json}
+                onChange={handleGeoJsonChange}
+                placeholder='{"type": "Feature", ...}'
+              />
+            </Form.Group>
+            <Form.Group className="mb-3" controlId="bbox">
+              <Form.Label>BBOX</Form.Label>
+              <Form.Control
+                className="font-monospace"
+                type="text"
+                value={bbox}
+                readOnly
+                placeholder="minX,minY,maxX,maxY"
+              />
+            </Form.Group>
             <Form.Group className="mb-3" controlId="epsg">
               <Form.Label>EPSG</Form.Label>
               <InputGroup>
@@ -347,9 +419,7 @@ function App() {
                 <Form.Control value={epsg} onChange={handleEpsgChange} />
               </InputGroup>
             </Form.Group>
-            {
-              error && <Alert variant="danger">{error}</Alert>
-            }
+            {error && <Alert variant="danger">{error}</Alert>}
           </Col>
         </Row>
       </Container>
@@ -357,7 +427,7 @@ function App() {
       <footer className="footer mt-auto pt-5 pb-4 bg-light">
         <Container>
           <p className="text-muted">This page parses, visualizes, and shares <a href="https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry" rel="noreferrer" className="text-muted" target="_blank">WKT</a> (ISO 13249) as well as <a href="https://opengeospatial.github.io/ogc-geosparql/geosparql11/spec.html#_rdfs_datatype_geowktliteral" target="blank" rel="noreferrer" className="text-muted">geo:wktLiteral</a> strings in a variety of coordinate reference systems. Built with <a href="https://openlayers.org/" target="blank" rel="noreferrer" className="text-muted">OpenLayers</a>, <a href="https://leafletjs.com/" target="blank" rel="noreferrer" className="text-muted">Leaflet</a>, <a href="https://trac.osgeo.org/proj4js" target="blank" rel="noreferrer" className="text-muted">Proj4js</a>, <a href="https://github.com/terraformer-js/terraformer" target="blank" rel="noreferrer" className="text-muted">terraformer</a>, and <a href="https://epsg.io/" target="blank" rel="noreferrer" className="text-muted">epsg.io</a>. Use the drawing tools to create your own geometries. Copy as Well-known Binary (WKB) or Extended Well-known Binary (EWKB). Also supports <a href="https://h3geo.org/" rel="noreferrer" className="text-muted" target="_blank">Uber H3</a>, <a href="https://en.wikipedia.org/wiki/Geohash" rel="noreferrer" className="text-muted" target="_blank">Geohash</a>, <a href="https://learn.microsoft.com/en-us/bingmaps/articles/bing-maps-tile-system" rel="noreferrer" className="text-muted" target="_blank">Quadkey</a>, WKB, and WFS BBOX conversion to WKT.</p>
-          <p className="text-muted">Created by <Twitter className="mb-1"/> <a rel="noreferrer" className="text-muted" href="https://twitter.com/PieterPrvst" target="_blank">PieterPrvst</a></p>
+          <p className="text-muted">Created by <Twitter className="mb-1" /> <a rel="noreferrer" className="text-muted" href="https://twitter.com/PieterPrvst" target="_blank">PieterPrvst</a></p>
         </Container>
       </footer>
 
