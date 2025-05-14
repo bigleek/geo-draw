@@ -1,18 +1,18 @@
 import "bootstrap/dist/css/bootstrap.min.css";
-import { Navbar, Container, Button, Form, Row, Col, Alert, InputGroup, Dropdown } from "react-bootstrap";
-import { MapContainer, TileLayer, FeatureGroup, LayersControl } from "react-leaflet";
+import {Alert, Button, Col, Container, Dropdown, Form, InputGroup, Navbar, Row} from "react-bootstrap";
+import {FeatureGroup, LayersControl, MapContainer, TileLayer} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
-import { React, useState, useMemo, useEffect, useRef } from "react";
+import {React, useEffect, useMemo, useRef, useState} from "react";
 import examples from "./examples";
-import { Twitter } from "react-bootstrap-icons";
+import {Twitter} from "react-bootstrap-icons";
 import FullscreenControl from "./FullscreenControl";
 import CRC32 from "crc-32";
-import { EditControl } from "react-leaflet-draw";
+import {EditControl} from "react-leaflet-draw";
 import ReactGA from "react-ga4";
-import { transformInput, ValueError, getBbox, layerGroupToWkt } from "./wkt";
-import toast, { Toaster } from "react-hot-toast";
+import {getBbox, layerGroupToWkt, transformInput, ValueError} from "./wkt";
+import toast, {Toaster} from "react-hot-toast";
 import wellknown from "wellknown";
 
 const DEFAULT_EPSG = "4326";
@@ -384,17 +384,13 @@ function handleBboxChange(e) {
     // Generate WKT from geometry
     const tempwkt = wellknown.stringify(polygon);
 
-    // Generate WKB and EWKB (assuming toWKB and toEWKB functions exist)
-    const tempwkb = toWKB(polygon, "4326");
-    const tempewkb = toEWKB(polygon, "4326");
-
     // Update state with new GeoJSON, WKT, WKB, and EPSG
     processInput({
       json: newGeoJson,
       epsg: "4326",
       wkt: tempwkt,
-      wkb: tempwkb,
-      ewkb: tempewkb
+        wkb: wkb,
+        ewkb: ewkb
     });
   } catch (e) {
     setError("Invalid GeoJSON format");
