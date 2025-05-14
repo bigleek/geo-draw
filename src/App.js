@@ -342,6 +342,65 @@ function App() {
       setError("Invalid GeoJSON format");
     }
   }
+
+function handleBboxChange(e) {
+  clearHash();
+  try {
+    // Parse bbox from input (expected format: [minx, miny, maxx, maxy])
+    const bbox = e.target.value.split(",");
+    const minx = bbox[0];
+    const miny = bbox[1];
+    const maxx = bbox[2];
+    const maxy = bbox[3];
+
+    // Create polygon geometry from bbox
+    const polygon = {
+      type: "Polygon",
+      coordinates: [[
+        [minx, miny],
+        [maxx, miny],
+        [maxx, maxy],
+        [minx, maxy],
+        [minx, miny]
+      ]]
+    };
+
+    // Create new GeoJSON feature with polygon geometry
+    const newGeoJson = {
+      type: "Feature",
+      geometry: polygon,
+      properties: {},
+      crs: {
+        type: "name",
+        properties: {
+          name: "urn:ogc:def:crs:EPSG::4326"
+        }
+      }
+    };
+
+    // Set JSON string representation
+    setJson(JSON.stringify(newGeoJson, null, 2));
+
+    // Generate WKT from geometry
+    const tempwkt = wellknown.stringify(polygon);
+
+    // Generate WKB and EWKB (assuming toWKB and toEWKB functions exist)
+    const tempwkb = toWKB(polygon, "4326");
+    const tempewkb = toEWKB(polygon, "4326");
+
+    // Update state with new GeoJSON, WKT, WKB, and EPSG
+    processInput({
+      json: newGeoJson,
+      epsg: "4326",
+      wkt: tempwkt,
+      wkb: tempwkb,
+      ewkb: tempewkb
+    });
+  } catch (e) {
+    setError("Invalid GeoJSON format");
+  }
+}
+
   // 辅助函数：从 GeoJSON 中提取几何对象
   function getGeometry(geoJson) {
     if (geoJson.type === "FeatureCollection" && geoJson.features.length > 0) {
@@ -408,7 +467,7 @@ function App() {
                 className="font-monospace"
                 type="text"
                 value={bbox}
-                readOnly
+                onChange={handleBboxChange}
                 placeholder="minX,minY,maxX,maxY"
               />
             </Form.Group>
