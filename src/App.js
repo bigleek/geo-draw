@@ -1,18 +1,18 @@
 import "bootstrap/dist/css/bootstrap.min.css";
-import {Alert, Button, Col, Container, Dropdown, Form, InputGroup, Navbar, Row} from "react-bootstrap";
-import {FeatureGroup, LayersControl, MapContainer, TileLayer} from "react-leaflet";
+import { Alert, Button, Col, Container, Dropdown, Form, InputGroup, Navbar, Row } from "react-bootstrap";
+import { FeatureGroup, LayersControl, MapContainer, TileLayer } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
-import {React, useEffect, useMemo, useRef, useState} from "react";
+import { React, useEffect, useMemo, useRef, useState } from "react";
 import examples from "./examples";
-import {Twitter} from "react-bootstrap-icons";
+import { Twitter } from "react-bootstrap-icons";
 import FullscreenControl from "./FullscreenControl";
 import CRC32 from "crc-32";
-import {EditControl} from "react-leaflet-draw";
+import { EditControl } from "react-leaflet-draw";
 import ReactGA from "react-ga4";
-import {getBbox, layerGroupToWkt, transformInput, ValueError} from "./wkt";
-import toast, {Toaster} from "react-hot-toast";
+import { getBbox, layerGroupToWkt, transformInput, ValueError } from "./wkt";
+import toast, { Toaster } from "react-hot-toast";
 import wellknown from "wellknown";
 
 const DEFAULT_EPSG = "4326";
@@ -43,7 +43,18 @@ function App() {
   const [json, setJson] = useState("");
   const [bbox, setBbox] = useState("");  // 添加 bbox state
   const [exampleIndex, setExampleIndex] = useState(0);
-
+  // 添加地图比例尺相关状态
+  const [pixelToMeterScale, setPixelToMeterScale] = useState(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [mapCenter, setMapCenter] = useState([10, 0]);
+  const coordSystems = {
+    "4326": "WGS84 经纬度",
+    "3857": "Web墨卡托",
+    "4490": "CGCS2000 经纬度",
+    "4479": "CGCS2000 高斯投影",
+    "4214": "北京54 经纬度",
+    "4610": "ITRF2000 经纬度"
+  };
   const groupRef = useRef();
 
   const ensureResize = function (mapRef) {
@@ -65,6 +76,7 @@ function App() {
         zoom={1}
         scrollWheelZoom={true}
         ref={setMap}
+        style={{ height: "calc(100vh - 450px)", width: "100%" }}
       >
         <LayersControl>
           <LayersControl.BaseLayer checked name="OpenStreetMap">
@@ -224,11 +236,16 @@ function App() {
 
   function handleEpsgChange(e) {
     clearHash();
-    setEpsg(e.target.value);
+    const newEpsg = e.target.value;
+    setEpsg(newEpsg);
+    // 更新当前数据到新的坐标系
     processInput({
       wkt: wkt,
-      epsg: e.target.value
+      epsg: newEpsg
     });
+    // 更新单位显示
+    const isGeographic = ["4326", "4490", "4214", "4610"].includes(newEpsg);
+    toast.success(`已切换到 ${coordSystems[newEpsg]}${isGeographic ? "（单位：度）" : "（单位：米）"}`);
   }
 
   function handleShare() {
@@ -343,59 +360,59 @@ function App() {
     }
   }
 
-function handleBboxChange(e) {
-  clearHash();
-  try {
-    // Parse bbox from input (expected format: [minx, miny, maxx, maxy])
-    const bbox = e.target.value.split(",");
-    const minx = bbox[0];
-    const miny = bbox[1];
-    const maxx = bbox[2];
-    const maxy = bbox[3];
+  function handleBboxChange(e) {
+    clearHash();
+    try {
+      // Parse bbox from input (expected format: [minx, miny, maxx, maxy])
+      const bbox = e.target.value.split(",");
+      const minx = bbox[0];
+      const miny = bbox[1];
+      const maxx = bbox[2];
+      const maxy = bbox[3];
 
-    // Create polygon geometry from bbox
-    const polygon = {
-      type: "Polygon",
-      coordinates: [[
-        [minx, miny],
-        [maxx, miny],
-        [maxx, maxy],
-        [minx, maxy],
-        [minx, miny]
-      ]]
-    };
+      // Create polygon geometry from bbox
+      const polygon = {
+        type: "Polygon",
+        coordinates: [[
+          [minx, miny],
+          [maxx, miny],
+          [maxx, maxy],
+          [minx, maxy],
+          [minx, miny]
+        ]]
+      };
 
-    // Create new GeoJSON feature with polygon geometry
-    const newGeoJson = {
-      type: "Feature",
-      geometry: polygon,
-      properties: {},
-      crs: {
-        type: "name",
-        properties: {
-          name: "urn:ogc:def:crs:EPSG::4326"
+      // Create new GeoJSON feature with polygon geometry
+      const newGeoJson = {
+        type: "Feature",
+        geometry: polygon,
+        properties: {},
+        crs: {
+          type: "name",
+          properties: {
+            name: "urn:ogc:def:crs:EPSG::4326"
+          }
         }
-      }
-    };
+      };
 
-    // Set JSON string representation
-    setJson(JSON.stringify(newGeoJson, null, 2));
+      // Set JSON string representation
+      setJson(JSON.stringify(newGeoJson, null, 2));
 
-    // Generate WKT from geometry
-    const tempwkt = wellknown.stringify(polygon);
+      // Generate WKT from geometry
+      const tempwkt = wellknown.stringify(polygon);
 
-    // Update state with new GeoJSON, WKT, WKB, and EPSG
-    processInput({
-      json: newGeoJson,
-      epsg: "4326",
-      wkt: tempwkt,
+      // Update state with new GeoJSON, WKT, WKB, and EPSG
+      processInput({
+        json: newGeoJson,
+        epsg: "4326",
+        wkt: tempwkt,
         wkb: wkb,
         ewkb: ewkb
-    });
-  } catch (e) {
-    setError("Invalid GeoJSON format");
+      });
+    } catch (e) {
+      setError("Invalid GeoJSON format");
+    }
   }
-}
 
   // 辅助函数：从 GeoJSON 中提取几何对象
   function getGeometry(geoJson) {
@@ -408,6 +425,37 @@ function handleBboxChange(e) {
     }
     return null;
   }
+  // 在 useEffect 钩子之后添加
+  useEffect(() => {
+    if (!map) return;
+
+    // 计算一个像素代表多少米的函数
+    const calculatePixelToMeterScale = () => {
+      const zoom = map.getZoom();
+      const centerLatLng = map.getCenter();
+
+      // 基于OpenStreetMap的比例尺计算公式
+      // 地球赤道周长约为40075公里，在缩放级别0时，整个世界地图的宽度为256像素
+      // 因此，在赤道处，一个像素代表的距离为：40075016.686 / (256 * 2^zoom) 米
+      // 随着纬度的增加，由于墨卡托投影的特性，这个值需要乘以cos(latitude)进行调整
+      const latitudeRadians = centerLatLng.lat * Math.PI / 180;
+      const metersPerPixel = 156543.03392 * Math.cos(latitudeRadians) / Math.pow(2, zoom);
+
+      setPixelToMeterScale(metersPerPixel);
+      setZoomLevel(zoom);
+      setMapCenter([centerLatLng.lat, centerLatLng.lng]);
+    };
+    // 初始计算
+    calculatePixelToMeterScale();
+    // 添加地图事件监听器
+    map.on('zoomend', calculatePixelToMeterScale);
+    map.on('moveend', calculatePixelToMeterScale);
+    // 清理函数
+    return () => {
+      map.off('zoomend', calculatePixelToMeterScale);
+      map.off('moveend', calculatePixelToMeterScale);
+    };
+  }, [map]);
   return (
     <div id="app">
 
@@ -468,10 +516,15 @@ function handleBboxChange(e) {
               />
             </Form.Group>
             <Form.Group className="mb-3" controlId="epsg">
-              <Form.Label>EPSG</Form.Label>
+              <Form.Label>坐标系统</Form.Label>
               <InputGroup>
-                <InputGroup.Text id="basic-addon1">EPSG:</InputGroup.Text>
-                <Form.Control value={epsg} onChange={handleEpsgChange} />
+                <Form.Select value={epsg} onChange={handleEpsgChange}>
+                  {Object.entries(coordSystems).map(([code, name]) => (
+                    <option key={code} value={code}>
+                      EPSG:{code} - {name}
+                    </option>
+                  ))}
+                </Form.Select>
               </InputGroup>
             </Form.Group>
             {error && <Alert variant="danger">{error}</Alert>}
@@ -479,6 +532,19 @@ function handleBboxChange(e) {
         </Row>
       </Container>
 
+      {/* 添加比例尺信息显示 */}
+      <Container className="mt-2 mb-2">
+        <Row className="border-top pt-2">
+          <Col>
+            <small className="text-muted">
+              <strong>地图信息：</strong>
+              缩放级别: {zoomLevel} |
+              中心点: [{mapCenter[0].toFixed(6)}, {mapCenter[1].toFixed(6)}] |
+              <strong>比例尺: 1像素 ≈ {pixelToMeterScale ? pixelToMeterScale.toFixed(2) : '?'} 米</strong>
+            </small>
+          </Col>
+        </Row>
+      </Container>
       <footer className="footer mt-auto pt-5 pb-4 bg-light">
         <Container>
           <p className="text-muted">This page parses, visualizes, and shares <a href="https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry" rel="noreferrer" className="text-muted" target="_blank">WKT</a> (ISO 13249) as well as <a href="https://opengeospatial.github.io/ogc-geosparql/geosparql11/spec.html#_rdfs_datatype_geowktliteral" target="blank" rel="noreferrer" className="text-muted">geo:wktLiteral</a> strings in a variety of coordinate reference systems. Built with <a href="https://openlayers.org/" target="blank" rel="noreferrer" className="text-muted">OpenLayers</a>, <a href="https://leafletjs.com/" target="blank" rel="noreferrer" className="text-muted">Leaflet</a>, <a href="https://trac.osgeo.org/proj4js" target="blank" rel="noreferrer" className="text-muted">Proj4js</a>, <a href="https://github.com/terraformer-js/terraformer" target="blank" rel="noreferrer" className="text-muted">terraformer</a>, and <a href="https://epsg.io/" target="blank" rel="noreferrer" className="text-muted">epsg.io</a>. Use the drawing tools to create your own geometries. Copy as Well-known Binary (WKB) or Extended Well-known Binary (EWKB). Also supports <a href="https://h3geo.org/" rel="noreferrer" className="text-muted" target="_blank">Uber H3</a>, <a href="https://en.wikipedia.org/wiki/Geohash" rel="noreferrer" className="text-muted" target="_blank">Geohash</a>, <a href="https://learn.microsoft.com/en-us/bingmaps/articles/bing-maps-tile-system" rel="noreferrer" className="text-muted" target="_blank">Quadkey</a>, WKB, and WFS BBOX conversion to WKT.</p>
@@ -489,5 +555,4 @@ function handleBboxChange(e) {
     </div>
   );
 }
-
 export default App;
