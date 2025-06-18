@@ -1,19 +1,20 @@
 import "bootstrap/dist/css/bootstrap.min.css";
-import { Alert, Button, Col, Container, Dropdown, Form, InputGroup, Navbar, Row } from "react-bootstrap";
-import { FeatureGroup, LayersControl, MapContainer, TileLayer } from "react-leaflet";
+import {Alert, Button, Col, Container, Dropdown, Form, InputGroup, Navbar, Row} from "react-bootstrap";
+import {FeatureGroup, LayersControl, MapContainer, TileLayer} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
-import { React, useEffect, useMemo, useRef, useState } from "react";
+import {React, useEffect, useMemo, useRef, useState} from "react";
 import examples from "./examples";
-import { Twitter } from "react-bootstrap-icons";
+import {Twitter} from "react-bootstrap-icons";
 import FullscreenControl from "./FullscreenControl";
 import CRC32 from "crc-32";
-import { EditControl } from "react-leaflet-draw";
+import {EditControl} from "react-leaflet-draw";
 import ReactGA from "react-ga4";
-import { getBbox, layerGroupToWkt, transformInput, ValueError } from "./wkt";
-import toast, { Toaster } from "react-hot-toast";
+import {getBbox, layerGroupToWkt, transformInput, ValueError} from "./wkt";
+import toast, {Toaster} from "react-hot-toast";
 import wellknown from "wellknown";
+import Graticule from './Graticule';
 
 const DEFAULT_EPSG = "4326";
 
@@ -46,6 +47,8 @@ function App() {
   // 添加地图比例尺相关状态
   const [pixelToMeterScale, setPixelToMeterScale] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(1);
+    const [tileX, setTileX] = useState(1);
+    const [tileY, setTileY] = useState(1);
   const [mapCenter, setMapCenter] = useState([10, 0]);
   const coordSystems = {
     "4326": "WGS84 经纬度",
@@ -150,6 +153,7 @@ function App() {
             }}
           />
         </FeatureGroup>
+          <Graticule/>
       </MapContainer>
     }, [] // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -429,21 +433,52 @@ function App() {
   useEffect(() => {
     if (!map) return;
 
-    // 计算一个像素代表多少米的函数
+      /**
+       * 根据经纬度和缩放级别计算所在的瓦片坐标 (x, y)
+       * @param {number} lat 纬度
+       * @param {number} lng 经度
+       * @param {number} zoom 缩放级别
+       * @returns {{x: number, y: number}} 瓦片坐标
+       */
+      const latLngToTileXY = (lat, lng, zoom) => {
+          // 将纬度转换为弧度
+          const latRad = lat * Math.PI / 180;
+          // 计算 n，这是墨卡托投影中的一个中间变量
+          const n = Math.pow(2, zoom);
+          // 计算瓦片 x 坐标
+          const xtile = Math.floor(n * ((lng + 180) / 360));
+          // 计算瓦片 y 坐标
+          const ytile = Math.floor(n * (1 - (Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI)) / 2);
+
+          return {x: xtile, y: ytile};
+      };
+
+      /**
+       * 更新并设置当前地图中心点所在的瓦片信息
+       */
     const calculatePixelToMeterScale = () => {
+          if (!map) return; // 确保 map 对象已初始化
+
       const zoom = map.getZoom();
       const centerLatLng = map.getCenter();
 
-      // 基于OpenStreetMap的比例尺计算公式
-      // 地球赤道周长约为40075公里，在缩放级别0时，整个世界地图的宽度为256像素
-      // 因此，在赤道处，一个像素代表的距离为：40075016.686 / (256 * 2^zoom) 米
-      // 随着纬度的增加，由于墨卡托投影的特性，这个值需要乘以cos(latitude)进行调整
-      const latitudeRadians = centerLatLng.lat * Math.PI / 180;
-      const metersPerPixel = 156543.03392 * Math.cos(latitudeRadians) / Math.pow(2, zoom);
+          // 使用上面的帮助函数计算瓦片坐标
+          const tile = latLngToTileXY(centerLatLng.lat, centerLatLng.lng, zoom);
+          // 基于OpenStreetMap的比例尺计算公式
+          // 地球赤道周长约为40075公里，在缩放级别0时，整个世界地图的宽度为256像素
+          // 因此，在赤道处，一个像素代表的距离为：40075016.686 / (256 * 2^zoom) 米
+          // 随着纬度的增加，由于墨卡托投影的特性，这个值需要乘以cos(latitude)进行调整
+          const latitudeRadians = centerLatLng.lat * Math.PI / 180;
+          const metersPerPixel = 156543.03392 * Math.cos(latitudeRadians) / Math.pow(2, zoom);
 
-      setPixelToMeterScale(metersPerPixel);
-      setZoomLevel(zoom);
-      setMapCenter([centerLatLng.lat, centerLatLng.lng]);
+          setPixelToMeterScale(metersPerPixel);
+          // 更新您的 React State 或其他变量
+          setZoomLevel(zoom);      // 设置缩放级别
+          setTileX(tile.x);        // 设置瓦片 X 坐标
+          setTileY(tile.y);        // 设置瓦片 Y 坐标
+          setMapCenter([centerLatLng.lat, centerLatLng.lng]); // 设置地图中心
+
+          console.log(`Current Zoom: ${zoom}, Tile X: ${tile.x}, Tile Y: ${tile.y}`);
     };
     // 初始计算
     calculatePixelToMeterScale();
@@ -539,6 +574,7 @@ function App() {
             <small className="text-muted">
               <strong>地图信息：</strong>
               缩放级别: {zoomLevel} |
+                Tile: {tileX},{tileY} |
               中心点: [{mapCenter[0].toFixed(6)}, {mapCenter[1].toFixed(6)}] |
               <strong>比例尺: 1像素 ≈ {pixelToMeterScale ? pixelToMeterScale.toFixed(2) : '?'} 米</strong>
             </small>
